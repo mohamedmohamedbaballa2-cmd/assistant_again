@@ -5,7 +5,7 @@ from google.genai import types
 st.set_page_config(page_title="مساعدي الذكي", page_icon="🤖")
 st.title("🤖 مساعدي الذكي")
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.8-flash"
 SYSTEM = (
     "أنت مساعد شخصي خبير يساعد في الدراسة والأعمال المكتبية وكتابة أكواد بايثون، "
     "ويرتب المهام ويترجم ويساعد في اتخاذ القرارات بذكر الخيارات والمقارنة بينها. "
