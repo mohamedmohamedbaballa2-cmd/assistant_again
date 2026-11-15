@@ -1,12 +1,11 @@
-import json
-import anthropic
 import streamlit as st
+from google import genai
+from google.genai import types
 
 st.set_page_config(page_title="مساعدي الذكي", page_icon="🤖")
 st.title("🤖 مساعدي الذكي")
 
-client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
-MODEL = "claude-sonnet-5-5"
+MODEL = "gemini-2.5-flash"
 SYSTEM = (
     "أنت مساعد شخصي خبير يساعد في الدراسة والأعمال المكتبية وكتابة أكواد بايثون، "
     "ويرتب المهام ويترجم ويساعد في اتخاذ القرارات بذكر الخيارات والمقارنة بينها. "
@@ -16,65 +15,39 @@ SYSTEM = (
 # ---------- الحالة ----------
 if "tasks" not in st.session_state:
     st.session_state.tasks = []
-if "api_messages" not in st.session_state:
-    st.session_state.api_messages = []
 if "display" not in st.session_state:
     st.session_state.display = []
 
 # ---------- الأدوات ----------
-TOOLS = [
-    {"name": "add_task",
-     "description": "يضيف مهمة جديدة مع موعد اختياري",
-     "input_schema": {"type": "object",
-                      "properties": {"title": {"type": "string"},
-                                     "due": {"type": "string", "description": "الموعد (اختياري)"}},
-                      "required": ["title"]}},
-    {"name": "list_tasks",
-     "description": "يعرض كل المهام",
-     "input_schema": {"type": "object", "properties": {}}},
-    {"name": "complete_task",
-     "description": "يحدد مهمة كمنجزة باستخدام رقمها",
-     "input_schema": {"type": "object",
-                      "properties": {"task_id": {"type": "integer"}},
-                      "required": ["task_id"]}},
-]
-
-def run_tool(name, args):
+def add_task(title: str, due: str = "") -> str:
+    """يضيف مهمة جديدة إلى قائمة المهام مع موعد اختياري."""
     tasks = st.session_state.tasks
-    if name == "add_task":
-        task = {"id": len(tasks) + 1, "title": args["title"],
-                "due": args.get("due", ""), "done": False}
-        tasks.append(task)
-        return f"تمت إضافة المهمة رقم {task['id']}"
-    if name == "list_tasks":
-        return tasks or "لا توجد مهام"
-    if name == "complete_task":
-        for t in tasks:
-            if t["id"] == args["task_id"]:
-                t["done"] = True
-                return "تم إنجاز المهمة"
-        return "المهمة غير موجودة"
-    return "أداة غير معروفة"
+    task = {"id": len(tasks) + 1, "title": title, "due": due, "done": False}
+    tasks.append(task)
+    return f"تمت إضافة المهمة رقم {task['id']}"
 
-# ---------- حلقة الـ Agent ----------
-def chat(user_text):
-    msgs = st.session_state.api_messages
-    msgs.append({"role": "user", "content": user_text})
-    while True:
-        r = client.messages.create(
-            model=MODEL, max_tokens=1500, system=SYSTEM,
-            tools=TOOLS, messages=msgs,
-        )
-        msgs.append({"role": "assistant", "content": r.content})
-        if r.stop_reason != "tool_use":
-            return "".join(b.text for b in r.content if b.type == "text")
-        results = []
-        for b in r.content:
-            if b.type == "tool_use":
-                out = run_tool(b.name, b.input)
-                results.append({"type": "tool_result", "tool_use_id": b.id,
-                                "content": json.dumps(out, ensure_ascii=False)})
-        msgs.append({"role": "user", "content": results})
+def list_tasks() -> list:
+    """يعرض كل المهام الحالية."""
+    return st.session_state.tasks
+
+def complete_task(task_id: int) -> str:
+    """يحدد مهمة كمنجزة باستخدام رقمها."""
+    for t in st.session_state.tasks:
+        if t["id"] == task_id:
+            t["done"] = True
+            return "تم إنجاز المهمة"
+    return "المهمة غير موجودة"
+
+# ---------- الاتصال بـ Gemini ----------
+if "chat" not in st.session_state:
+    client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+    st.session_state.chat = client.chats.create(
+        model=MODEL,
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM,
+            tools=[add_task, list_tasks, complete_task],
+        ),
+    )
 
 # ---------- الواجهة ----------
 for role, text in st.session_state.display:
@@ -88,11 +61,12 @@ if prompt := st.chat_input("اكتب طلبك هنا..."):
     with st.chat_message("assistant"):
         with st.spinner("أفكر..."):
             try:
-                answer = chat(prompt)
+                answer = st.session_state.chat.send_message(prompt).text
             except Exception as e:
                 answer = f"حدث خطأ: {e}"
         st.write(answer)
     st.session_state.display.append(("assistant", answer))
+    st.rerun()
 
 with st.sidebar:
     st.header("📋 مهامي")
